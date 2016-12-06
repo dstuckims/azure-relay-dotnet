@@ -95,7 +95,7 @@ namespace Microsoft.Azure.Relay.WebSockets
                 string targetHost = options.RequestHeaders[HttpKnownHeaderNames.Host];
                 if (string.IsNullOrEmpty(targetHost))
                 {
-                    targetHost = uri.IdnHost;
+                    targetHost = uri.Host; // IdnHost;
                 }
 
                 // Upgrade to SSL if needed
@@ -174,7 +174,7 @@ namespace Microsoft.Azure.Relay.WebSockets
                     {
                         try
                         {
-                            await socket.ConnectAsync(address, port).ConfigureAwait(false);
+                            socket.Connect(address, port);
                         }
                         catch (ObjectDisposedException ode)
                         {

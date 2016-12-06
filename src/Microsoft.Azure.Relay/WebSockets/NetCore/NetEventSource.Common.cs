@@ -75,7 +75,7 @@ namespace Microsoft.Azure.Relay.WebSockets
         /// <param name="formattableString">A description of the entrance, including any arguments to the call.</param>
         /// <param name="memberName">The calling member.</param>
         [NonEvent]
-        public static void Enter(object thisOrContextObject, FormattableString formattableString = null, [CallerMemberName] string memberName = null)
+        public static void Enter(object thisOrContextObject, string formattableString = null, [CallerMemberName] string memberName = null)
         {
             DebugValidateArg(thisOrContextObject);
             DebugValidateArg(formattableString);
@@ -135,7 +135,7 @@ namespace Microsoft.Azure.Relay.WebSockets
         /// <param name="formattableString">A description of the exit operation, including any return values.</param>
         /// <param name="memberName">The calling member.</param>
         [NonEvent]
-        public static void Exit(object thisOrContextObject, FormattableString formattableString = null, [CallerMemberName] string memberName = null)
+        public static void Exit(object thisOrContextObject, string formattableString = null, [CallerMemberName] string memberName = null)
         {
             DebugValidateArg(thisOrContextObject);
             DebugValidateArg(formattableString);
@@ -179,7 +179,7 @@ namespace Microsoft.Azure.Relay.WebSockets
         /// <param name="formattableString">The message to be logged.</param>
         /// <param name="memberName">The calling member.</param>
         [NonEvent]
-        public static void Info(object thisOrContextObject, FormattableString formattableString = null, [CallerMemberName] string memberName = null)
+        public static void Info(object thisOrContextObject, string formattableString = null, [CallerMemberName] string memberName = null)
         {
             DebugValidateArg(thisOrContextObject);
             DebugValidateArg(formattableString);
@@ -209,7 +209,7 @@ namespace Microsoft.Azure.Relay.WebSockets
         /// <param name="formattableString">The message to be logged.</param>
         /// <param name="memberName">The calling member.</param>
         [NonEvent]
-        public static void Error(object thisOrContextObject, FormattableString formattableString, [CallerMemberName] string memberName = null)
+        public static void Error(object thisOrContextObject, string formattableString, [CallerMemberName] string memberName = null)
         {
             DebugValidateArg(thisOrContextObject);
             DebugValidateArg(formattableString);
@@ -239,7 +239,7 @@ namespace Microsoft.Azure.Relay.WebSockets
         /// <param name="formattableString">The message to be logged.</param>
         /// <param name="memberName">The calling member.</param>
         [NonEvent]
-        public static void Fail(object thisOrContextObject, FormattableString formattableString, [CallerMemberName] string memberName = null)
+        public static void Fail(object thisOrContextObject, string formattableString, [CallerMemberName] string memberName = null)
         {
             // Don't call DebugValidateArg on args, as we expect Fail to be used in assert/failure situations
             // that should never happen in production, and thus we don't care about extra costs.
@@ -316,18 +316,18 @@ namespace Microsoft.Azure.Relay.WebSockets
         [NonEvent]
         public static unsafe void DumpBuffer(object thisOrContextObject, IntPtr bufferPtr, int count, [CallerMemberName] string memberName = null)
         {
-            Debug.Assert(bufferPtr != IntPtr.Zero);
-            Debug.Assert(count >= 0);
+            //Debug.Assert(bufferPtr != IntPtr.Zero);
+            //Debug.Assert(count >= 0);
 
-            if (IsEnabled)
-            {
-                var buffer = new byte[Math.Min(count, MaxDumpSize)];
-                fixed (byte* targetPtr = buffer)
-                {
-                    Buffer.MemoryCopy((byte*)bufferPtr, targetPtr, buffer.Length, buffer.Length);
-                }
-                Log.DumpBuffer(IdOf(thisOrContextObject), memberName, buffer);
-            }
+            //if (IsEnabled)
+            //{
+            //    var buffer = new byte[Math.Min(count, MaxDumpSize)];
+            //    fixed (byte* targetPtr = buffer)
+            //    {
+            //        Buffer.MemoryCopy((byte*)bufferPtr, targetPtr, buffer.Length, buffer.Length);
+            //    }
+            //    Log.DumpBuffer(IdOf(thisOrContextObject), memberName, buffer);
+            //}
         }
 
         [Event(DumpArrayEventId, Level = EventLevel.Verbose, Keywords = Keywords.Debug)]
@@ -375,12 +375,12 @@ namespace Microsoft.Azure.Relay.WebSockets
             if (!IsEnabled)
             {
                 Debug.Assert(!(arg is ValueType), $"Should not be passing value type {arg?.GetType()} to logging without IsEnabled check");
-                Debug.Assert(!(arg is FormattableString), $"Should not be formatting FormattableString \"{arg}\" if tracing isn't enabled");
+                //Debug.Assert(!(arg is FormattableString), $"Should not be formatting FormattableString \"{arg}\" if tracing isn't enabled");
             }
         }
 
         [Conditional("DEBUG_NETEVENTSOURCE_MISUSE")]
-        private static void DebugValidateArg(FormattableString arg)
+        private static void DebugValidateArg(string arg)
         {
             Debug.Assert(IsEnabled || arg == null, $"Should not be formatting FormattableString \"{arg}\" if tracing isn't enabled");
         }
@@ -450,23 +450,25 @@ namespace Microsoft.Azure.Relay.WebSockets
         }
 
         [NonEvent]
-        private static string Format(FormattableString s)
+        private static string Format(string s)
         {
-            switch (s.ArgumentCount)
-            {
-                case 0: return s.Format;
-                case 1: return string.Format(s.Format, Format(s.GetArgument(0)));
-                case 2: return string.Format(s.Format, Format(s.GetArgument(0)), Format(s.GetArgument(1)));
-                case 3: return string.Format(s.Format, Format(s.GetArgument(0)), Format(s.GetArgument(1)), Format(s.GetArgument(2)));
-                default:
-                    object[] args = s.GetArguments();
-                    object[] formattedArgs = new object[args.Length];
-                    for (int i = 0; i < args.Length; i++)
-                    {
-                        formattedArgs[i] = Format(args[i]);
-                    }
-                    return string.Format(s.Format, formattedArgs);
-            }
+            return s;
+
+            //switch (s.ArgumentCount)
+            //{
+            //    case 0: return s.Format;
+            //    case 1: return string.Format(s.Format, Format(s.GetArgument(0)));
+            //    case 2: return string.Format(s.Format, Format(s.GetArgument(0)), Format(s.GetArgument(1)));
+            //    case 3: return string.Format(s.Format, Format(s.GetArgument(0)), Format(s.GetArgument(1)), Format(s.GetArgument(2)));
+            //    default:
+            //        object[] args = s.GetArguments();
+            //        object[] formattedArgs = new object[args.Length];
+            //        for (int i = 0; i < args.Length; i++)
+            //        {
+            //            formattedArgs[i] = Format(args[i]);
+            //        }
+            //        return string.Format(s.Format, formattedArgs);
+            //}
         }
 
         static partial void AdditionalCustomizedToString<T>(T value, ref string result);
@@ -539,6 +541,8 @@ namespace Microsoft.Azure.Relay.WebSockets
             }
         }
 
+        static readonly byte[] emptyByteArray = new byte[0];
+
         [NonEvent]
         private unsafe void WriteEvent(int eventId, string arg1, string arg2, byte[] arg3)
         {
@@ -546,7 +550,7 @@ namespace Microsoft.Azure.Relay.WebSockets
             {
                 if (arg1 == null) arg1 = "";
                 if (arg2 == null) arg2 = "";
-                if (arg3 == null) arg3 = Array.Empty<byte>();
+                if (arg3 == null) arg3 = emptyByteArray; // Array.Empty<byte>();
 
                 fixed (char* arg1Ptr = arg1)
                 fixed (char* arg2Ptr = arg2)

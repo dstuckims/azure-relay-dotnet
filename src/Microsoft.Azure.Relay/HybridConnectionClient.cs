@@ -180,7 +180,7 @@ namespace Microsoft.Azure.Relay
                     await webSocket.ConnectAsync(webSocketUri, cancelSource.Token).ConfigureAwait(false);
                 }
 
-#if NET45 // TODO: Flow Response Headers in NETSTANDARD ClientWebSocket
+#if false // NET45 // TODO: Flow Response Headers in NETSTANDARD ClientWebSocket
                 var trackingId = webSocket.ResponseHeaders[TrackingContext.TrackingIdName];
                 if (!string.IsNullOrEmpty(trackingId))
                 {

@@ -4,6 +4,7 @@
 namespace Microsoft.Azure.Relay
 {
     using System;
+    using System.Threading;
     using System.Threading.Tasks;
 
     static class TaskEx
@@ -230,6 +231,23 @@ namespace Microsoft.Azure.Relay
 
                 return FromException<TResult>(ex);
             }
+        }
+
+        public static Task FromCanceled(CancellationToken cancellationToken)
+        {
+            return FromCanceled<object>(cancellationToken);
+        }
+
+        public static Task<TResult> FromCanceled<TResult>(CancellationToken cancellationToken)
+        {
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                throw new ArgumentOutOfRangeException(nameof(cancellationToken));
+            }
+
+            var tcs = new TaskCompletionSource<TResult>();
+            tcs.SetCanceled();
+            return tcs.Task;
         }
 
         /// <summary>

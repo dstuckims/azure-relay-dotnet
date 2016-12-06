@@ -272,7 +272,7 @@ namespace Microsoft.Azure.Relay.WebSockets
             }
             catch (Exception exc)
             {
-                return Task.FromException(exc);
+                return TaskEx.FromException(exc);
             }
 
             MessageOpcode opcode =
@@ -305,7 +305,7 @@ namespace Microsoft.Azure.Relay.WebSockets
             }
             catch (Exception exc)
             {
-                return Task.FromException<WebSocketReceiveResult>(exc);
+                return TaskEx.FromException<WebSocketReceiveResult>(exc);
             }
         }
 
@@ -319,7 +319,7 @@ namespace Microsoft.Azure.Relay.WebSockets
             }
             catch (Exception exc)
             {
-                return Task.FromException(exc);
+                return TaskEx.FromException(exc);
             }
 
             return CloseAsyncPrivate(closeStatus, statusDescription, cancellationToken);
@@ -335,7 +335,7 @@ namespace Microsoft.Azure.Relay.WebSockets
             }
             catch (Exception exc)
             {
-                return Task.FromException(exc);
+                return TaskEx.FromException(exc);
             }
 
             return SendCloseFrameAsync(closeStatus, statusDescription, cancellationToken);
@@ -396,7 +396,7 @@ namespace Microsoft.Azure.Relay.WebSockets
                 if (writeTask.IsCompleted)
                 {
                     writeTask.GetAwaiter().GetResult(); // propagate any exceptions
-                    return Task.CompletedTask;
+                    return TaskEx.CompletedTask;
                 }
 
                 // Up until this point, if an exception occurred (such as when accessing _stream or when
@@ -406,7 +406,7 @@ namespace Microsoft.Azure.Relay.WebSockets
             }
             catch (Exception exc)
             {
-                return Task.FromException(_state == WebSocketState.Aborted ?
+                return TaskEx.FromException(_state == WebSocketState.Aborted ?
                     CreateOperationCanceledException(exc) :
                     new WebSocketException(WebSocketError.ConnectionClosedPrematurely, exc));
             }
@@ -505,7 +505,7 @@ namespace Microsoft.Azure.Relay.WebSockets
             {
                 // This exists purely to keep the connection alive; don't wait for the result, and ignore any failures.
                 // The call will handle releasing the lock.
-                SendFrameLockAcquiredNonCancelableAsync(MessageOpcode.Ping, true, new ArraySegment<byte>(Array.Empty<byte>()));
+                SendFrameLockAcquiredNonCancelableAsync(MessageOpcode.Ping, true, new ArraySegment<byte>(new byte[0]));
             }
             else
             {

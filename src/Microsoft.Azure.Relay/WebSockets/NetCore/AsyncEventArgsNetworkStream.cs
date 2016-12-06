@@ -59,7 +59,7 @@ namespace Microsoft.Azure.Relay.WebSockets
         {
             if (cancellationToken.IsCancellationRequested)
             {
-                return Task.FromCanceled<int>(cancellationToken);
+                return TaskEx.FromCanceled<int>(cancellationToken);
             }
 
             _readAtmb = new AsyncTaskMethodBuilder<int>();
@@ -90,7 +90,7 @@ namespace Microsoft.Azure.Relay.WebSockets
         {
             if (cancellationToken.IsCancellationRequested)
             {
-                return Task.FromCanceled(cancellationToken);
+                return TaskEx.FromCanceled(cancellationToken);
             }
 
             _writeAtmb = new AsyncTaskMethodBuilder();
