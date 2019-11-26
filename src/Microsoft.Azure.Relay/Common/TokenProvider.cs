@@ -72,7 +72,10 @@ namespace Microsoft.Azure.Relay
         /// <param name="validFor">How long the generated token should be valid for.</param>
         protected abstract Task<SecurityToken> OnGetTokenAsync(string audience, TimeSpan validFor);
 
-        static string NormalizeAudience(string audience)
+        /// <summary>
+        /// Format the audience as http, no query parameters, and with a trailing slash.
+        /// </summary>
+        public static string NormalizeAudience(string audience)
         {
             return UriHelper.NormalizeUri(audience, UriScheme.Http, true, stripPath: false, ensureTrailingSlash: true).AbsoluteUri;
         }

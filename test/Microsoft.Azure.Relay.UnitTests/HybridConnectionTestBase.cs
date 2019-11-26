@@ -15,9 +15,36 @@ namespace Microsoft.Azure.Relay.UnitTests
     using System.Threading.Tasks;
     using Xunit;
 
-    public class HybridConnectionTestBase
+    public class HybridConnectionTestBase : IDisposable
     {
-        protected readonly string ConnectionString;
+        readonly RelayEmulator relayEmulator;
+
+        protected HybridConnectionTestBase()
+        {
+            var envConnectionString = Environment.GetEnvironmentVariable(Constants.ConnectionStringEnvironmentVariable);
+            if (string.IsNullOrWhiteSpace(envConnectionString))
+            {
+                throw new InvalidOperationException($"'{Constants.ConnectionStringEnvironmentVariable}' environment variable was not found!");
+            }
+
+            // Validate the connection string
+            var connectionStringBuilder = new RelayConnectionStringBuilder(envConnectionString);
+            this.ConnectionString = connectionStringBuilder.ToString();
+
+            if (string.Equals(connectionStringBuilder.Endpoint.Host, "localhost", StringComparison.OrdinalIgnoreCase))
+            {
+                this.relayEmulator = new RelayEmulator(connectionStringBuilder.Endpoint.Port);
+                this.relayEmulator.Authorization.Add(new SharedAccessAuthorizationRule(connectionStringBuilder.SharedAccessKeyName, connectionStringBuilder.SharedAccessKey, new[] { AccessRights.Manage, AccessRights.Listen, AccessRights.Send }));
+                this.relayEmulator.Start();
+                var hybridConnectionAuth = new HybridConnectionDescription(Constants.AuthenticatedEntityPath) { RequiresClientAuthorization = true };
+                this.relayEmulator.CreateHybridConnection(hybridConnectionAuth);
+
+                var hybridConnectionUnauth = new HybridConnectionDescription(Constants.UnauthenticatedEntityPath) { RequiresClientAuthorization = false };
+                this.relayEmulator.CreateHybridConnection(hybridConnectionUnauth);
+            }
+        }
+
+        protected string ConnectionString { get; private set; }
 
         protected enum EndpointTestType
         {
@@ -39,16 +66,18 @@ namespace Microsoft.Azure.Relay.UnitTests
             new object[] { EndpointTestType.Unauthenticated, true },
         };
 
-        public HybridConnectionTestBase()
+        public void Dispose()
         {
-            var envConnectionString = Environment.GetEnvironmentVariable(Constants.ConnectionStringEnvironmentVariable);
-            if (string.IsNullOrWhiteSpace(envConnectionString))
-            {
-                throw new InvalidOperationException($"'{Constants.ConnectionStringEnvironmentVariable}' environment variable was not found!");
-            }
+            this.Dispose(true);
+        }
 
-            // Validate the connection string
-            ConnectionString = new RelayConnectionStringBuilder(envConnectionString).ToString();
+        protected virtual void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                this.relayEmulator?.Dispose();
+                GC.SuppressFinalize(this);
+            }
         }
 
         /// <summary>
@@ -56,8 +85,8 @@ namespace Microsoft.Azure.Relay.UnitTests
         /// </summary>
         protected HybridConnectionClient GetHybridConnectionClient(EndpointTestType endpointTestType)
         {
-            var connectionString = GetConnectionString(endpointTestType);
-            return new HybridConnectionClient(connectionString);
+            var connectionStringBuilder = GetConnectionString(endpointTestType, isListener: false);
+            return new HybridConnectionClient(connectionStringBuilder.ToString());
         }
 
         /// <summary>
@@ -66,17 +95,7 @@ namespace Microsoft.Azure.Relay.UnitTests
         protected HybridConnectionListener GetHybridConnectionListener(EndpointTestType endpointTestType)
         {
             // Even if the endpoint is unauthenticated, the *listener* still needs to be authenticated
-            if (endpointTestType == EndpointTestType.Unauthenticated)
-            {
-                var connectionStringBuilder = new RelayConnectionStringBuilder(this.ConnectionString)
-                {
-                    EntityPath = Constants.UnauthenticatedEntityPath
-                };
-
-                return new HybridConnectionListener(connectionStringBuilder.ToString());
-            }
-
-            return new HybridConnectionListener(GetConnectionString(endpointTestType));
+            return new HybridConnectionListener(GetConnectionString(endpointTestType, isListener: true).ToString());
         }
 
         public static void LogRequestLine(HttpRequestMessage httpRequest, HttpClient httpClient)
@@ -113,16 +132,16 @@ namespace Microsoft.Azure.Relay.UnitTests
             TestUtility.Log($"Response: HTTP/{httpResponse.Version} {(int)httpResponse.StatusCode} {httpResponse.ReasonPhrase}");
         }
 
-        public static void LogResponse(HttpResponseMessage httpResponse, bool showBody = true)
+        public static void LogResponse(HttpResponseMessage httpResponse, bool? showBody = true)
         {
             TestUtility.Log("Received Response:");
             TestUtility.Log($"HTTP/{httpResponse.Version} {(int)httpResponse.StatusCode} {httpResponse.ReasonPhrase}");
             httpResponse.Headers.ToList().ForEach((kvp) => LogHttpHeader(kvp.Key, kvp.Value));
 
             TestUtility.Log(string.Empty);
-            if (httpResponse.Content != null)
+            if (showBody.HasValue && httpResponse.Content != null)
             {
-                if (showBody)
+                if (showBody.Value)
                 {
                     TestUtility.Log(httpResponse.Content?.ReadAsStringAsync().Result);
                 }
@@ -294,25 +313,18 @@ namespace Microsoft.Azure.Relay.UnitTests
         /// Since these tests all share a common connection string, this method will modify the 
         /// endpoint / shared access keys as needed based on the EndpointTestType.
         /// </summary>
-        protected string GetConnectionString(EndpointTestType endpointTestType)
-        {
-            var connectionStringBuilder = this.GetConnectionStringBuilder(endpointTestType);
-            return connectionStringBuilder.ToString();
-        }
-
-        /// <summary>
-        /// Since these tests all share a common connection string, this method will modify the 
-        /// endpoint / shared access keys as needed based on the EndpointTestType.
-        /// </summary>
-        protected RelayConnectionStringBuilder GetConnectionStringBuilder(EndpointTestType endpointTestType)
+        protected RelayConnectionStringBuilder GetConnectionString(EndpointTestType endpointTestType, bool isListener)
         {
             var connectionStringBuilder = new RelayConnectionStringBuilder(this.ConnectionString);
             if (endpointTestType == EndpointTestType.Unauthenticated)
             {
                 connectionStringBuilder.EntityPath = Constants.UnauthenticatedEntityPath;
-                connectionStringBuilder.SharedAccessKey = string.Empty;
-                connectionStringBuilder.SharedAccessKeyName = string.Empty;
-                connectionStringBuilder.SharedAccessSignature = string.Empty;
+                if (!isListener)
+                {
+                    connectionStringBuilder.SharedAccessKey = string.Empty;
+                    connectionStringBuilder.SharedAccessKeyName = string.Empty;
+                    connectionStringBuilder.SharedAccessSignature = string.Empty;
+                }
             }
             else
             {

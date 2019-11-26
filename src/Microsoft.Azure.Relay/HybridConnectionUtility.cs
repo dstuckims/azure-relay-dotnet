@@ -16,7 +16,10 @@ namespace Microsoft.Azure.Relay
     using Microsoft.Extensions.Primitives;
 #endif
 
-    static class HybridConnectionUtility
+    /// <summary>
+    /// 
+    /// </summary>
+    public static class HybridConnectionUtility
     {
         // These readonly arrays are so we don't allocate arrays every time we call string.Split(params char[]...)
         static readonly char[] Ampersand = new char[] { '&' };

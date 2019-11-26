@@ -9,7 +9,7 @@ namespace Microsoft.Azure.Relay
     using System.Threading;
     using System.Threading.Tasks;
 
-    class WebSocketMessageStream : Stream
+    public class WebSocketMessageStream : Stream
     {
         readonly WebSocket webSocket;
         long position;

@@ -6,6 +6,7 @@ namespace Microsoft.Azure.Relay.UnitTests
     using System;
     using System.Collections.Generic;
     using System.Diagnostics;
+    using System.IO;
     using System.Linq;
     using System.Net;
     using System.Net.Http;
@@ -26,7 +27,7 @@ namespace Microsoft.Azure.Relay.UnitTests
             try
             {
                 listener = this.GetHybridConnectionListener(endpointTestType);
-                RelayConnectionStringBuilder connectionString = GetConnectionStringBuilder(endpointTestType);
+                RelayConnectionStringBuilder connectionString = GetConnectionString(endpointTestType, isListener: false);
                 Uri endpointUri = connectionString.Endpoint;
 
                 string expectedResponse = "{ \"a\" : true }";
@@ -100,7 +101,7 @@ namespace Microsoft.Azure.Relay.UnitTests
             try
             {
                 listener = this.GetHybridConnectionListener(endpointTestType);
-                RelayConnectionStringBuilder connectionString = GetConnectionStringBuilder(endpointTestType);
+                RelayConnectionStringBuilder connectionString = GetConnectionString(endpointTestType, isListener: false);
                 Uri endpointUri = connectionString.Endpoint;
 
                 TestUtility.Log($"Opening {listener}");
@@ -185,7 +186,7 @@ namespace Microsoft.Azure.Relay.UnitTests
                     await context.Response.CloseAsync();
                 };
 
-                RelayConnectionStringBuilder connectionString = GetConnectionStringBuilder(endpointTestType);
+                RelayConnectionStringBuilder connectionString = GetConnectionString(endpointTestType, isListener: false);
                 Uri endpointUri = connectionString.Endpoint;
                 Uri hybridHttpUri = new UriBuilder("https://", endpointUri.Host, endpointUri.Port, connectionString.EntityPath).Uri;
 
@@ -244,7 +245,7 @@ namespace Microsoft.Azure.Relay.UnitTests
                     await context.Response.CloseAsync();
                 };
 
-                RelayConnectionStringBuilder connectionString = GetConnectionStringBuilder(endpointTestType);
+                RelayConnectionStringBuilder connectionString = GetConnectionString(endpointTestType, isListener: false);
                 Uri endpointUri = connectionString.Endpoint;
                 Uri hybridHttpUri = new UriBuilder("https://", endpointUri.Host, endpointUri.Port, connectionString.EntityPath).Uri;
 
@@ -263,6 +264,115 @@ namespace Microsoft.Azure.Relay.UnitTests
                         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
                         Assert.Equal(0, response.Content.ReadAsStreamAsync().Result.Length);
                         Assert.Equal(body.Length, requestBody.Length);
+                    }
+                }
+
+                await listener.CloseAsync(cts.Token);
+            }
+            finally
+            {
+                await SafeCloseAsync(listener);
+            }
+        }
+
+        //[Fact, DisplayTestMethodName]
+        async Task SlowRequestSlowResponse()
+        {
+            const int RequestChunkCount = 2;
+            const int ResponseChunkCount = 2;
+            var chunkDelay = TimeSpan.FromSeconds(4);
+            byte[] chunkData = this.CreateBuffer(10 * 1024, new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 });
+
+            int timeoutInMillis = 3 * (RequestChunkCount + ResponseChunkCount) * (int)chunkDelay.TotalMilliseconds;
+            TestUtility.Log($"Overall Timeout is {timeoutInMillis} ms");
+            var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(timeoutInMillis));
+            HybridConnectionListener listener = this.GetHybridConnectionListener(EndpointTestType.Authenticated);
+            try
+            {
+                await listener.OpenAsync(cts.Token);
+                listener.RequestHandler = async (context) =>
+                {
+                    try
+                    {
+                        TestUtility.Log($"Listener.RequestHandler: Invoked: {context.Request.HttpMethod} {context.Request.Url}");
+                        if (context.Request.HasEntityBody)
+                        {
+                            // Read the request stream
+                            var buffer = new byte[8 * 1024];
+                            int bytesRead;
+                            long totalRequestBytes = 0;
+                            while (0 != (bytesRead = await context.Request.InputStream.ReadAsync(buffer, 0, buffer.Length, cts.Token)))
+                            {
+                                TestUtility.Log($"Listener.RequestHandler: Read {bytesRead} Request bytes ([0] == {buffer[0]})");
+                                totalRequestBytes += bytesRead;
+                            }
+
+                            TestUtility.Log($"Listener.RequestHandler: Total Request Length: {totalRequestBytes}");
+                        }
+                        
+                        for (int i = 0; i < ResponseChunkCount; i++)
+                        {
+                            TestUtility.Log($"RequestHandler: Writing {chunkData.Length} Response bytes");
+                            await context.Response.OutputStream.WriteAsync(chunkData, 0, chunkData.Length);
+                            await context.Response.OutputStream.FlushAsync();
+                            await Task.Delay(chunkDelay);
+                        }
+
+                        TestUtility.Log($"RequestHandler: Writing Response bytes completed");
+                        await context.Response.CloseAsync();
+                    }
+                    catch (Exception e)
+                    {
+                        TestUtility.Log("HybridConnectionListener.RequestHandler Error: " + e);
+                    }
+                };
+
+                RelayConnectionStringBuilder connectionString = GetConnectionString(EndpointTestType.Authenticated, isListener: false);
+                Uri endpointUri = connectionString.Endpoint;
+                Uri hybridHttpUri = new UriBuilder("https://", endpointUri.Host, endpointUri.Port, connectionString.EntityPath).Uri;
+
+
+                var httpRequest = (HttpWebRequest)WebRequest.Create(hybridHttpUri);
+                using (var abortRegistration = cts.Token.Register(() => httpRequest.Abort()))
+                {
+                    httpRequest.Method = HttpMethod.Post.Method;
+                    httpRequest.AllowReadStreamBuffering = false;
+                    httpRequest.AllowWriteStreamBuffering = false;
+                    httpRequest.SendChunked = true;
+                    await AddAuthorizationHeader(listener.TokenProvider, httpRequest.Headers, hybridHttpUri);
+
+                    using (var requestStream = await httpRequest.GetRequestStreamAsync())
+                    {
+                        for (int i = 0; i < RequestChunkCount; i++)
+                        {
+                            TestUtility.Log($"Client: Writing {chunkData.Length} Request bytes");
+                            await requestStream.WriteAsync(chunkData, 0, chunkData.Length, cts.Token);
+                            await requestStream.FlushAsync();
+                            await Task.Delay(chunkDelay);
+                        }
+
+                        TestUtility.Log($"Client: Writing Request bytes completed");
+                    }
+
+                    using (var httpResponse = (HttpWebResponse)await httpRequest.GetResponseAsync())
+                    {
+                        TestUtility.Log($"Client: Response: {(int)httpResponse.StatusCode} {httpResponse.StatusDescription}");
+                        using (var responseStream = httpResponse.GetResponseStream())
+                        {
+                            Assert.Equal(HttpStatusCode.OK, httpResponse.StatusCode);
+
+                            // Read the response stream
+                            var buffer = new byte[8 * 1024];
+                            int bytesRead;
+                            long totalResponseBytes = 0;
+                            while (0 != (bytesRead = await responseStream.ReadAsync(buffer, 0, buffer.Length, cts.Token)))
+                            {
+                                TestUtility.Log($"Client: Response Read {bytesRead} bytes");
+                                totalResponseBytes += bytesRead;
+                            }
+
+                            TestUtility.Log($"Client: Total Response Length: {totalResponseBytes}");
+                        }
                     }
                 }
 
@@ -355,7 +465,7 @@ namespace Microsoft.Azure.Relay.UnitTests
             {
                 listener1 = this.GetHybridConnectionListener(endpointTestType);
                 listener2 = this.GetHybridConnectionListener(endpointTestType);
-                RelayConnectionStringBuilder connectionString = GetConnectionStringBuilder(endpointTestType);
+                RelayConnectionStringBuilder connectionString = GetConnectionString(endpointTestType, isListener: false);
                 Uri endpointUri = connectionString.Endpoint;
 
                 TestUtility.Log("Opening HybridConnectionListeners");
@@ -436,7 +546,7 @@ namespace Microsoft.Azure.Relay.UnitTests
             HybridConnectionListener listener = this.GetHybridConnectionListener(endpointTestType);
             try
             {
-                RelayConnectionStringBuilder connectionString = GetConnectionStringBuilder(endpointTestType);
+                RelayConnectionStringBuilder connectionString = GetConnectionString(endpointTestType, isListener: false);
                 Uri endpointUri = connectionString.Endpoint;
 
                 TestUtility.Log("Calling HybridConnectionListener.Open");
@@ -499,7 +609,7 @@ namespace Microsoft.Azure.Relay.UnitTests
             HybridConnectionListener listener = this.GetHybridConnectionListener(endpointTestType);
             try
             {
-                RelayConnectionStringBuilder connectionString = GetConnectionStringBuilder(endpointTestType);
+                RelayConnectionStringBuilder connectionString = GetConnectionString(endpointTestType, isListener: false);
                 Uri endpointUri = connectionString.Endpoint;
 
                 TestUtility.Log("Calling HybridConnectionListener.Open");
@@ -512,10 +622,10 @@ namespace Microsoft.Azure.Relay.UnitTests
                     new { Original = "?sb-hc-id=1&custom=value", Output = "?custom=value" },
                     new { Original = "?custom=value&sb-hc-id=1", Output = "?custom=value" },
                     new { Original = "?sb-hc-undefined=true", Output = "" },                    
-                    new { Original = "? Key =  Value With Space ", Output = "?+Key+=++Value+With+Space" }, // HttpUtility.ParseQueryString.ToString() in the cloud service changes this
-                    new { Original = "?key='value'", Output = "?key=%27value%27" }, // HttpUtility.ParseQueryString.ToString() in the cloud service changes this
+                    //new { Original = "? Key =  Value With Space ", Output = "?+Key+=++Value+With+Space" }, // HttpUtility.ParseQueryString.ToString() in the cloud service changes this
+                    //new { Original = "?key='value'", Output = "?key=%27value%27" }, // HttpUtility.ParseQueryString.ToString() in the cloud service changes this
                     new { Original = "?key=\"value\"", Output = "?key=%22value%22" }, // HttpUtility.ParseQueryString.ToString() in the cloud service changes this
-                    new { Original = "?key=<value>", Output = "?key=%3cvalue%3e" },
+                    //new { Original = "?key=<value>", Output = "?key=%3cvalue%3e" },
 #if PENDING_SERVICE_UPDATE
                     new { Original = "?foo=bar&", Output = "?foo=bar&" },
                     new { Original = "?&foo=bar", Output = "?foo=bar" }, // HttpUtility.ParseQueryString.ToString() in the cloud service changes this
@@ -581,7 +691,7 @@ namespace Microsoft.Azure.Relay.UnitTests
             HybridConnectionListener listener = this.GetHybridConnectionListener(endpointTestType);
             try
             {
-                RelayConnectionStringBuilder connectionString = GetConnectionStringBuilder(endpointTestType);
+                RelayConnectionStringBuilder connectionString = GetConnectionString(endpointTestType, isListener: false);
                 Uri endpointUri = connectionString.Endpoint;
                 await listener.OpenAsync(TimeSpan.FromSeconds(30));
 
@@ -678,7 +788,7 @@ namespace Microsoft.Azure.Relay.UnitTests
                     }
                 };
 
-                RelayConnectionStringBuilder connectionString = GetConnectionStringBuilder(endpointTestType);
+                RelayConnectionStringBuilder connectionString = GetConnectionString(endpointTestType, isListener: false);
                 Uri endpointUri = connectionString.Endpoint;
                 Uri hybridHttpUri = new UriBuilder("https://", endpointUri.Host, endpointUri.Port, connectionString.EntityPath).Uri;
 
@@ -717,7 +827,7 @@ namespace Microsoft.Azure.Relay.UnitTests
             HybridConnectionListener listener = this.GetHybridConnectionListener(endpointTestType);
             try
             {
-                RelayConnectionStringBuilder connectionString = GetConnectionStringBuilder(endpointTestType);
+                RelayConnectionStringBuilder connectionString = GetConnectionString(endpointTestType, isListener: false);
                 Uri endpointUri = connectionString.Endpoint;
 
                 TestUtility.Log("Calling HybridConnectionListener.Open");
@@ -794,7 +904,7 @@ namespace Microsoft.Azure.Relay.UnitTests
             HybridConnectionListener listener = this.GetHybridConnectionListener(endpointTestType);
             try
             {
-                RelayConnectionStringBuilder connectionString = GetConnectionStringBuilder(endpointTestType);
+                RelayConnectionStringBuilder connectionString = GetConnectionString(endpointTestType, isListener: false);
                 Uri endpointUri = connectionString.Endpoint;
 
                 TestUtility.Log("Calling HybridConnectionListener.Open");

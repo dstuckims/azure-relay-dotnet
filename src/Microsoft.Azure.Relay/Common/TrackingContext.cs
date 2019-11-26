@@ -59,7 +59,12 @@ namespace Microsoft.Azure.Relay
             return Create(trackingId, address.GetComponents(UriComponents.SchemeAndServer | UriComponents.Path, UriFormat.UriEscaped));
         }
 
-        internal static TrackingContext Create(string trackingId, string address)
+        /// <summary>
+        /// Create a TrackingContext with a new Guid/TrackingId and given address.
+        /// </summary>
+        /// <param name="trackingId">The unique id for this operation</param>
+        /// <param name="address">subsystem-specific Uri like entity address to be used in the tracking context</param>
+        public static TrackingContext Create(string trackingId, string address)
         {
             Guid activityId;
             bool parseFailed = false;

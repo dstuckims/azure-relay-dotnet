@@ -90,7 +90,7 @@ namespace Microsoft.Azure.Relay.UnitTests
                 // and whether to accept or reject the client.
                 listener.AcceptHandler = TestAcceptHandler;
 
-                var clientConnectionString = GetConnectionString(endpointTestType);
+                var clientConnectionString = GetConnectionString(endpointTestType, isListener: false).ToString();
 
                 var connectionStringBuilder = new RelayConnectionStringBuilder(clientConnectionString);
 
@@ -207,9 +207,9 @@ namespace Microsoft.Azure.Relay.UnitTests
         /// </summary>
         async Task<Uri> GetWebSocketConnectionUri(EndpointTestType endpointTestType)
         {
-            var clientConnectionString = GetConnectionString(endpointTestType);
+            var clientConnectionString = GetConnectionString(endpointTestType, isListener: true /* ??? */).ToString();
             var connectionStringBuilder = new RelayConnectionStringBuilder(clientConnectionString);
-            var connectionUriString = $"wss://{connectionStringBuilder.Endpoint.Host}/$hc/{connectionStringBuilder.EntityPath}";
+            var connectionUriString = $"wss://{connectionStringBuilder.Endpoint.Authority}/$hc/{connectionStringBuilder.EntityPath}";
 
             if (endpointTestType == EndpointTestType.Authenticated)
             {
