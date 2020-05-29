@@ -69,6 +69,11 @@ namespace Microsoft.Azure.Relay.UnitTests
         public void Dispose()
         {
             this.Dispose(true);
+                envConnectionString = Environment.GetEnvironmentVariable(Constants.LegacyConnectionStringEnvironmentVariable);
+                if (string.IsNullOrWhiteSpace(envConnectionString))
+                {
+                    throw new InvalidOperationException($"'{Constants.ConnectionStringEnvironmentVariable}' environment variable was not found!");
+                }
         }
 
         protected virtual void Dispose(bool disposing)

@@ -1,0 +1,53 @@
+name: azure-relay-dotnet
+
+on:
+  push:
+    branches:
+      - master
+      - dev
+    paths-ignore:
+      - '**\*.md'
+  pull_request:
+    branches:
+      - master
+      - dev
+    paths-ignore:
+      - '**\*.md'
+
+jobs:
+  build-windows:
+    name: Build on windows-latest
+    runs-on: 'windows-latest'
+
+    steps:
+    - uses: actions/checkout@v1
+    - run: dotnet --info
+    - name: Restore
+      run: .\restore.cmd
+    - name: Build
+      run: .\build.cmd
+    - name: Package
+      run: .\package.cmd
+
+  build-nix:
+    strategy:
+      matrix:
+        platform: [ 'ubuntu-latest', 'macos-latest' ]
+
+    name: Build on ${{ matrix.platform }}
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+    - uses: actions/checkout@v1
+    - run: dotnet --info
+    - name: Setup .NET Core 3.0.100
+      uses: actions/setup-dotnet@v1
+      with:
+        dotnet-version: '3.0.100'
+    - run: dotnet --info
+    - name: Restore
+      run: ./restore.sh
+    - name: Build
+      run: ./build.sh
+    - name: Package
+      run: ./package.sh
