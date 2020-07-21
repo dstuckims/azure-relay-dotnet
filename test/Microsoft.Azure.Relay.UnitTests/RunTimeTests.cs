@@ -5,6 +5,8 @@ namespace Microsoft.Azure.Relay.UnitTests
 {
     using System;
     using System.Collections.Generic;
+    using System.IO;
+    using System.Net.WebSockets;
     using System.Threading;
     using System.Threading.Tasks;
     using Xunit;
@@ -111,6 +113,127 @@ namespace Microsoft.Azure.Relay.UnitTests
             finally
             {
                 await this.SafeCloseAsync(listener);
+            }
+        }
+
+        [Fact, DisplayTestMethodName]
+        async Task ClientShutdownTest2()
+        {
+            HybridConnectionListener listener = null;
+            try
+            {
+                listener = GetHybridConnectionListener(EndpointTestType.Unauthenticated);
+
+                string websocketUrl = string.Format("wss://{0}/$hc/{1}", listener.Address.Host, listener.Address.LocalPath.Trim('/'));
+                ClientWebSocket webSocket = new ClientWebSocket();
+
+                TestUtility.Log($"Test: Opening {listener}");
+                await listener.OpenAsync(TimeSpan.FromSeconds(30));
+                var listenerTask = Task.Run(async () =>
+                {
+                    do
+                    {
+                        var relayConnection = await listener.AcceptConnectionAsync();
+                        if (relayConnection == null)
+                        {
+                            TestUtility.Log("Listener: AcceptConnectionAsync returned null (shutting down)");
+                            break;
+                        }
+
+                        HandleWebSocketConnection(relayConnection, webSocket);
+                    }
+                    while (true);
+                });
+
+                await webSocket.ConnectAsync(new Uri(websocketUrl), CancellationToken.None);
+
+                TestUtility.Log("Sender: Calling WebSocket.SendAsync");
+                var msg1 = System.Text.Encoding.UTF8.GetBytes("Message 1");
+                await webSocket.SendAsync(new ArraySegment<byte>(msg1, 0, msg1.Length), WebSocketMessageType.Binary, true, CancellationToken.None);
+                TestUtility.Log("Sender: Calling WebSocket.SendAsync completed");
+
+                TestUtility.Log("Sender: Calling WebSocket.ReceiveAsync");
+                byte[] buffer = new byte[BufferSize];
+                WebSocketReceiveResult result = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
+                TestUtility.Log($"Sender: Calling WebSocket.ReceiveAsync completed (result.MessageType = {result.MessageType}, result.Count = {result.Count})");
+
+                TestUtility.Log("Sender: Calling WebSocket.CloseOutputAsync");
+                await webSocket.CloseOutputAsync(WebSocketCloseStatus.Empty, "", CancellationToken.None);
+                TestUtility.Log("Sender: Calling WebSocket.CloseOutputAsync completed");
+                await Task.Delay(TimeSpan.FromSeconds(5));
+
+                TestUtility.Log("Sender: Calling WebSocket.CloseAsync");
+                await webSocket.CloseAsync(WebSocketCloseStatus.Empty, "", CancellationToken.None);
+                TestUtility.Log("Sender: Calling WebSocket.CloseAsync completed");
+                await Task.Delay(TimeSpan.FromSeconds(5));
+
+                TestUtility.Log("Sender: Calling WebSocket.Dispose");
+                webSocket.Dispose();
+                TestUtility.Log("Sender: Calling WebSocket.Dispose completed");
+                await Task.Delay(TimeSpan.FromSeconds(5));
+
+                TestUtility.Log($"Test: Closing {listener}");
+                await listener.CloseAsync(TimeSpan.FromSeconds(10));
+                TestUtility.Log($"Test: Closing {listener} completed");
+                listener = null;
+            }
+            finally
+            {
+                await this.SafeCloseAsync(listener);
+            }
+        }
+
+        static async void HandleWebSocketConnection(HybridConnectionStream relayConnection, ClientWebSocket webSocket)
+        {
+            TestUtility.Log("Listener: New HybridConnection accepted");
+            try
+            {
+                byte[] buffer = new byte[BufferSize];
+                while (true)
+                {
+                    TestUtility.Log("Listener: Calling HybridConnectionStream.ReadAsync");
+                    int bytesRead = await relayConnection.ReadAsync(buffer, 0, buffer.Length);
+                    TestUtility.Log($"Listener: Calling HybridConnectionStream.ReadAsync completed (bytesRead = {bytesRead})");
+                    if (bytesRead > 0)
+                    {
+                        TestUtility.Log("Listener: Calling HybridConnectionStream.WriteAsync");
+                        await relayConnection.WriteAsync(buffer, 0, bytesRead);
+                        TestUtility.Log("Listener: Calling HybridConnectionStream.WriteAsync completed");
+                    }
+                    else
+                    {
+                        TestUtility.Log("Listener: HybridConnectionStream is shutting down!");
+                        TestUtility.Log("Listener: Calling HybridConnectionStream.CloseAsync");
+                        await relayConnection.CloseAsync(CancellationToken.None);
+                        TestUtility.Log("Listener: Calling HybridConnectionStream.CloseAsync completed");
+                        return;
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                TestUtility.Log("Listener: Exception in HandleWebSocketConnection: " + e);
+            }
+        }
+
+        const int BufferSize = 8 * 1024;
+        
+        private static async Task ReceiveAsync(ClientWebSocket socket, StreamWriter writer, string connectionId)
+        {
+            try
+            {
+                byte[] buffer = new byte[BufferSize];
+                TestUtility.Log("Listener: Calling WebSocket??.ReceiveAsync");
+                WebSocketReceiveResult result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
+                TestUtility.Log($"Listener: Calling WebSocket??.ReceiveAsync completed ({result.MessageType})");
+
+                TestUtility.Log("Listener: Calling HybridConnectionStream.WriteAsync");
+                await writer.BaseStream.WriteAsync(buffer, 0, result.Count);
+                TestUtility.Log("Listener: Calling HybridConnectionStream.WriteAsync completed");
+            }
+            catch (Exception e)
+            {
+                TestUtility.Log("Listener: Exception in ReceiveAsync: " + e);
             }
         }
 
